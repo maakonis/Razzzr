@@ -1,0 +1,170 @@
+\documentclass[10pt]{beamer}
+
+\usetheme{metropolis}
+\usepackage{appendixnumberbeamer}
+
+\usepackage{booktabs}
+\usepackage[scale=2]{ccicons}
+
+\usepackage{pgfplots}
+\usepgfplotslibrary{dateplot}
+
+\usepackage{xspace}
+\newcommand{\themename}{\textbf{\textsc{metropolis}}\xspace}
+
+\title{Razzzr: Localization}
+\subtitle{Description of a model for positional inference}
+\date{\today}
+\author{Jerome Wynne}
+% \titlegraphic{\hfill\includegraphics[height=1.5cm]{logo.pdf}}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Table of contents}
+  \setbeamertemplate{section in toc}[sections numbered]
+  \tableofcontents[hideallsubsections]
+\end{frame}
+
+\section{Introduction}
+
+\begin{frame}[fragile]{Introduction}
+	\textbf{Problem description}
+	
+	We aim to determine the relative position of a razor blade in 3D space. To help us to do this, we have measurements of:
+	\begin{itemize}
+		\item Linear acceleration
+		\item Rotational velocity
+		\item Gravity (linear acc. sans motive component)
+		\item Absolute orientation
+		\item Magnetic field strength
+	\end{itemize}
+\end{frame}
+
+\section{High-level Information}
+
+\begin{frame}{High-level Details}
+
+	\textbf{Properties of the proposed model}
+	\begin{itemize}
+		\item Does not update in real-time - we collect the data, then run the algorithm.
+		\item Positional prediction at an instant uses only the preceding measurements.
+		\begin{itemize}
+			\item Can easily be extended to include measurements `from the future' - this would enhance the accuracy of our predictions.
+			\item Anticipates a model that updates in real-time.
+		\end{itemize}
+	\end{itemize}
+	
+\end{frame}
+
+\begin{frame}{High-level Details}
+	
+	\textbf{Properties of the implementation}
+	\begin{itemize}
+		\item We'll use Python and TensorFlow.
+		\item Visualization is probably the hard part:
+		\begin{itemize}
+			\item Could export predicted path/orientation, use Processing to render the result.
+			\item Could learn how to use Blender/Blender's Python API (\emph{highly unrealistic in our timeframe}\footnote{If we want to do real-time and realistic rendering, this may be a better long-term solution})
+		\end{itemize}
+	\end{itemize}
+
+\end{frame}
+
+\section{Model details}
+\begin{frame}{Model}
+	
+	\textbf{Model summary}
+	
+	The model we'll be using predicts our current world state (i.e. a position + orientation vector) based on measurements from the past. We index time using the integer $t$.
+	
+	Notation:
+	\begin{align*}
+	 \text{Position at time} \ t &= \mathbf{w}_t \hfill &\text{(vector)}\\
+	\text{Measurements at time} \ t &= \mathbf{x}_t \hfill &\text{(vector)}\\
+	\text{All measurements until time} \ t &= \mathbf{x}_{1...t} \hfill & \text{(set of vectors)}\\
+	\text{Normal dist. over a vector $\mathbf{a}$} &= \text{Norm}_{\mathbf{a}}[\pmb{\mu}, \pmb{\Sigma}] \hfill &\text{(function, $\mathbb{R}^n \to \mathbb{R}$)}
+	\end{align*}
+	In general, we'll be using bold lowercase letters to denote vectors, bold upper letters to denote matrices, and regular weight lowercase letters to denote scalars.
+	
+\end{frame}
+
+
+\begin{frame}{Model}
+	
+	\textbf{Working principle}
+	
+	At every instant $t$, we make an estimate of the razor's position $\mathbf{w}_t$. We base this prediction on all measurements taken up until that point, $\mathbf{x}_{1...t}$.
+	 
+	 $\text{Pr}(\mathbf{w}_t | \mathbf{x}_{1...t})$ is a function that assigns large values to likely positions and small values to unlikely positions, based on all our measurements. 
+	 
+	 Our objective is to estimate $\text{Pr}(\mathbf{w}_t|\mathbf{x}_{1...t})$. 
+	 
+\end{frame}
+
+\begin{frame}{Model}
+	\textbf{Working principle contd.}
+	
+	We could estimate $\text{Pr}(\mathbf{w}_t|\mathbf{x}_{1..t})$ directly.
+	
+	 In theory, this could be done by:
+	 \begin{itemize}
+	 	\item Modeling the relationship between the world state at every time $t$ and every single measurement from the past.
+	 	\item Modeling all of the measurements' interrelationships.
+	 \end{itemize}
+	The number of parameters that must be estimated for such a model increases at a faster-than-factorial rate with $t$. In other words, this approach is computationally infeasible.
+	
+	 To circumvent this problem, we make some simplifying (but mostly reasonable) assumptions.
+
+\end{frame}
+
+\begin{frame}{Model}
+	\textbf{Working principle contd.}
+	
+	Simplifying assumptions:
+	\begin{itemize}
+		\item Our positional history only influences our current position through our position a moment ago (i.e. in the last time-step).
+		\item Previous measurements tell us no more about what our current measurements should be than our current position does.
+	\end{itemize}
+
+\end{frame}
+
+\begin{frame}
+	The first assumption is reasonable provided that we keep track of our velocity and acceleration. Doing so helps us to understand what direction we're moving in, and what the curvature of our path is like.
+
+	The second assumption is also reasonable: If we know where we are, then our previous measurements provide no additional help in predicting what our sensors measure at present (provided the noise is not time-dependent).
+\end{frame}
+
+\begin{frame}
+	Assuming the truth of these assumptions, we have a model that incorporates all previous measurements into our estimate for our current position.
+\end{frame}
+
+
+\begin{frame}{Model}
+	
+	\textbf{Working principle contd.}
+	
+	We can factorize this :
+	\begin{gather*}
+		\text{Pr}(\mathbf{w}_t|\mathbf{x}_{1...t}) = \frac{\text{Pr}(\mathbf{x}_{1..t}|\mathbf{w}_t)\cdot \text{Pr}(\mathbf{w}_t)}{\text{Pr}(\mathbf{x}_{1...t})} \\[1.5em]
+		= \frac{\text{\small{Prior beliefs, weighted by their compatibility with the measurements}}}{\text{\small{Normalizing constant}}}
+	\end{gather*}
+	The normalizing constant is introduced to make the l.h.s. sum to 1 over all world states, making it a valid probability distribution. 
+	
+	We can think of the numerator as a scoring function - states we thought initially likely \emph{and} that support the observed measurements score highly.
+
+\end{frame}
+
+\begin{frame}{Model}
+	
+	\textbf{Working principle contd.\textsuperscript{2}}
+	
+	So to estimate $\text{Pr}(\mathbf{s})$
+
+\end{frame}
+
+
+\section{Summary}
+
+\end{document}

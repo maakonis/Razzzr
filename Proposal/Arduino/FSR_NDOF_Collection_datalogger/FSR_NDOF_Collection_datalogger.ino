@@ -9,23 +9,24 @@
 
 /* > General Declarations < */
 const bool PRINT_MEASUREMENTS = false;
+const int  SAMPLING_PERIOD    = 10;    // ms
 int        time_step          = 0;
 
 /* > Datalogger Declarations < */
-const String HEADER     = "time,th_x,th_y,th_z,acc_x,acc_y,acc_z,mag_x,mag_y,mag_z,grav_x,grav_y,grav_z,force,temperature,calibration";
-const bool   WRITE_DEMO_FILE    = false;
-const int    CS_PIN     = 4;
-int          file_index = 0;
+const String HEADER          = "time,th_x,th_y,th_z,acc_x,acc_y,acc_z,mag_x,mag_y,mag_z,grav_x,grav_y,grav_z,force,temperature,calibration";
+const bool   WRITE_DEMO_FILE = false;
+const int    CS_PIN          = 4;
+int          file_index      = 0;
 String       CSV_name;
 File         dataFile;
 File         root;
 
 /* > Orientation Sensor Declarations < */
-Adafruit_BNO055 bno = Adafruit_BNO055(55);   // What does the 55 do?
-int            *calibration          = NULL; // Pointer to an array of calibration status values.
-const int      ACCELERATION_SF       = 1000; // Retains precision of acceleration floats when casting to int.
-const int      CALIBRATION_THRESHOLD = 30;   // 200 * 30 = 6000ms -> Continuous length of time the sensor must be calibrated for before data collection begins.
-const int      SAMPLING_PERIOD       = 10;   // ms
+Adafruit_BNO055 bno                  = Adafruit_BNO055(55);   // What does the 55 do?
+const int      CALIBRATION_THRESHOLD = 100;                    // 200 * 100 = 10000ms -> Continuous length of time the sensor must be calibrated for before data collection begins.
+const int      ACCELERATION_SF       = 100;                   // Retains precision of acceleration floats when casting to int.
+int            calibration_score     = 0;                     // Accumulator for calibration phase
+int            *calibration          = NULL;                  // Pointer to an array of calibration status values.
 imu::Vector<3> magnetic_field;
 imu::Vector<3> acceleration;
 imu::Vector<3> orientation;
@@ -33,7 +34,7 @@ imu::Vector<3> gravity;
 int            temperature;
 
 /* > Force Sensor Declarations < */
-const int FSRPIN      = 0;     // the FSR and 10K pulldown are connected to a0
+const int FSR_PIN         = 0;     // the FSR and 10K pulldown are connected to a0
 int       force_reading;
 int       force;
 
@@ -57,7 +58,7 @@ void setup(void) {
   while(root.openNextFile()) {
     file_index += 1;
   }
-  CSV_name = file_index + ".CSV";
+  CSV_name = String(file_index) + ".CSV";
   
   dataFile = SD.open(CSV_name, FILE_WRITE);
   dataFile.println(HEADER);
@@ -80,11 +81,12 @@ void setup(void) {
     digitalWrite(13, HIGH);
     delay(100);
     calibration = getCalibrationStatus(bno);          // Returns a pointer to the first element of an int[4] array
-    Serial.println("Calibration status:\t" + *(calibration)  + "\t" +
-                                             *(calibration+1) + "\t" +
-                                             *(calibration+2) + "\t" +
-                                             *(calibration+3));
-    calibration_score = max(*calibration - 2, 0)*(*calibration - 2); // Accumulator
+    Serial.println("Calibration status:\t" + String(*(calibration))   + "\t" +
+                                             String(*(calibration+1)) + "\t" +
+                                             String(*(calibration+2)) + "\t" +
+                                             String(*(calibration+3)));
+    
+    calibration_score = max(*(calibration) - 2, 0)*(calibration_score + *(calibration + 2) - 2); // Accumulator
   }
   Serial.println("Sensor calibrated.");
 
@@ -94,19 +96,19 @@ void setup(void) {
 
 void loop() {
   /* 1. Collect BNO055 sensor data. */
-  sensors_event_t event; // Associate memory with an event object
+  sensors_event_t event; // Allocate memory to an event object
   bno.getEvent(&event);  // Send the orientation sensor's data to the in-memory address of the event object
 
-  orientation    = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-  acceleration   = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
   magnetic_field = bno.getVector(Adafruit_BNO055::VECTOR_MAGNETOMETER);
+  acceleration   = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
   gravity        = bno.getVector(Adafruit_BNO055::VECTOR_GRAVITY);
-  temperature    = bno.getTemp();
+  orientation    = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
   calibration    = getCalibrationStatus(bno);
+  temperature    = bno.getTemp();
   
   /* 2. Collect force data. */
-  force_reading  = analogRead(fsrPin);
-  force          = map(fsrReading, 0, 1023, 0, 100);
+  force_reading  = analogRead(FSR_PIN);
+  force          = map(force_reading, 0, 1023, 0, 100);
   
   /* 3. Write measurements to the SD card. */
   writeData(dataFile,
@@ -130,19 +132,19 @@ void loop() {
             );
 
   /* 4. Periodically save the data. */
-  if (time_step % 100 == 0){ // Should really introduce a save button
+  if (time_step % 1000 == 0){ // Should really introduce a save button
     dataFile.close();
     dataFile = SD.open(CSV_name, FILE_WRITE);
     }
 
   /* 5. Print calibration status to monitor. */ 
   calibration = getCalibrationStatus(bno);
-  Serial.println("Data collection status:\t" + *(calibration))  + "\t" +
-                                                *(calibration+1) + "\t" +
-                                                *(calibration+2) + "\t" +
-                                                *(calibration+3));
+  Serial.println("Data collection status:\t" + String(*(calibration))   + "\t" +
+                                               String(*(calibration+1)) + "\t" +
+                                               String(*(calibration+2)) + "\t" +
+                                               String(*(calibration+3)));
   time_step  += 1;
-   delay(SAMPLING_PERIOD);
+  delay(SAMPLING_PERIOD);
 }
       
 
@@ -152,7 +154,7 @@ void writeData(File file, int n_args, ...){
   
   va_start(argList, n_args);
   for (int i = 0; i < n_args; i++) { // Print each argument to a line in the file
-    file.print(va_arg(argList, int) + ",");
+    file.print(String(va_arg(argList, int)) + ",");
   }
   va_end(argList);
   

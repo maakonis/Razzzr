@@ -23,7 +23,7 @@ File         root;
 
 /* > Orientation Sensor Declarations < */
 Adafruit_BNO055 bno                  = Adafruit_BNO055(55);   // What does the 55 do?
-const int      CALIBRATION_THRESHOLD = 100;                    // 200 * 100 = 10000ms -> Continuous length of time the sensor must be calibrated for before data collection begins.
+const int      CALIBRATION_THRESHOLD = 100;                   // 200 * 100 = 10000ms -> Continuous length of time the sensor must be calibrated for before data collection begins.
 const int      ACCELERATION_SF       = 100;                   // Retains precision of acceleration floats when casting to int.
 int            calibration_score     = 0;                     // Accumulator for calibration phase
 int            *calibration          = NULL;                  // Pointer to an array of calibration status values.
